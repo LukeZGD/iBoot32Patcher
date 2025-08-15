@@ -25,6 +25,8 @@
 #define DEBUG_ENABLED_DTRE_VAR_STR "debug-enabled"
 #define DEFAULT_BOOTARGS_STR "rd=md0 nand-enable-reformat=1 -progress"
 #define RELIANCE_CERT_STR "Reliance on this certificate"
+#define IBOOT_TYPE_IBSS bswap32(0x69425353)
+#define IBOOT_TYPE_IBEC bswap32(0x69424543)
 
 int patch_boot_args(struct iboot_img* iboot_in, const char* boot_args);
 int patch_env_boot_args(struct iboot_img* iboot_in);
@@ -41,4 +43,7 @@ int patch_setenv_cmd(struct iboot_img* iboot_in);
 int patch_433orlower_jumpiBoot(struct iboot_img* iboot_in);
 int patch_logo(struct iboot_img* iboot_in);
 int patch_logo4(struct iboot_img* iboot_in);
+int patch_dualboot_ibss(struct iboot_img* iboot_in);
+int patch_dualboot_ibec(struct iboot_img* iboot_in);
+int patch_dualboot(struct iboot_img* iboot_in);
 #endif

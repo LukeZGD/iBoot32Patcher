@@ -22,10 +22,27 @@
 
 #include <include/iBoot32Patcher.h>
 
-#define RSA_PATCH_IOS_4 "\x4F\xF0\xFF\x30\xDD\xF8\x40\x24\xDB\xF8\x00\x30\x9A\x42\x01\xD0"
+#define RSA_STR "Apple Secure Boot Certification Authority"
+#define MOVW_R0_NEG_1 0x4ff0ff30
+#define MOV_NEGS_R0_1 0x01204042
+#define MOVS_R1_0x14 0x1421
+
+// platform/s5l8950x/init.c
+#define PLATFORM_INIT_STR "platform/s5l"
+#define PLATFORM_8720 bswap32(0x38373230)
+#define PLATFORM_8900 bswap32(0x38393030)
+#define PLATFORM_8920 bswap32(0x38393230)
+#define PLATFORM_8922 bswap32(0x38393232)
+#define PLATFORM_8930 bswap32(0x38393330)
+#define PLATFORM_8940 bswap32(0x38393430)
+#define PLATFORM_8942 bswap32(0x38393432)
+#define PLATFORM_8945 bswap32(0x38393435)
+#define PLATFORM_8947 bswap32(0x38393437)
+#define PLATFORM_8950 bswap32(0x38393530)
+#define PLATFORM_8955 bswap32(0x38393535)
 
 void* find_bl_verify_shsh(struct iboot_img* iboot_in);
-void* find_rsa_check_4(struct iboot_img* iboot_in);
+void* find_rsa_check_3_4(struct iboot_img* iboot_in);
 void* find_ldr_ecid(struct iboot_img* iboot_in);
 void* find_ldr_bord(struct iboot_img* iboot_in);
 void* find_ldr_prod(struct iboot_img* iboot_in);
@@ -43,5 +60,9 @@ void* find_Boot_Args_String_Location(struct iboot_img* iboot_in);
 void* find_Boot_Args_MOV(void* Search_Begin);
 void* find_ldr_xref(struct iboot_img *iboot_in);
 void* find_null_str(void* _mov_insn, int reg);
-
+void* find_kloader_addr(struct iboot_img* iboot_in);
+void* find_usb_wait_for_image(struct iboot_img* iboot_in);
+void* find_fsboot_boot_command(struct iboot_img* iboot_in);
+void* find_auto_boot(struct iboot_img* iboot_in);
+void* find_platform(struct iboot_img* iboot_in);
 #endif

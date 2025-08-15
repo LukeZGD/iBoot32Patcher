@@ -53,7 +53,6 @@ int main(int argc, char** argv) {
 	char* cmd_handler_str = NULL;
 	char* custom_boot_args = NULL;
 	bool env_boot_args = false;
-    bool rsa_patch = false;
     bool debug_patch = false;
     bool boot_partition_patch = false;
     int boot_partition_9 = 0;
@@ -67,6 +66,8 @@ int main(int argc, char** argv) {
     bool logo_patch = false;
     bool logo4_patch = false;
     char* custom_color = NULL;
+    bool dualboot_patch = false;
+    bool rsa_patch = false;
 	struct iboot_img iboot_in;
 	memset(&iboot_in, 0, sizeof(iboot_in));
 
@@ -76,7 +77,6 @@ int main(int argc, char** argv) {
         printf("\t-a\t\t\tUse boot-args environment variable\n");
         printf("\t-c <cmd> <ptr>\t\tChange a command handler's pointer (hex)\n");
         
-        printf("\t--rsa\t\t\tApply RSA check patch\n");
         printf("\t--debug\t\t\tApply debug_enabled patch\n");
         printf("\t--ticket\t\tApply ticket patch\n");
         printf("\t--local-boot\t\tApply iOS 10 local boot patch\n");
@@ -90,6 +90,8 @@ int main(int argc, char** argv) {
         printf("\t--logo\t\t\tFix AppleLogo for iOS 5+ iBoot (for De Rebus Antiquis)\n");
         printf("\t--logo4\t\t\tFix AppleLogo for iOS 4 iBoot (for De Rebus Antiquis)\n");
         printf("\t--433\t\t\tApply enable jump to iBoot patch for iOS 4.3.3 or lower\n");
+        printf("\t--dualboot\t\tApply default dualbooting patches for iOS 5 -> iOS 10\n");
+        printf("\t--rsa\t\t\tApply signature check patches\n");
 		return -1;
 	}
 
@@ -104,11 +106,7 @@ int main(int argc, char** argv) {
 			cmd_handler_str = (char*) argv[i+1];
 			sscanf((char*) argv[i+2], "0x%08X", &cmd_handler_ptr);
 		}
-        
-        if(HAS_ARG("--rsa", 0)) {
-            rsa_patch = true;
-        }
-        
+
         if(HAS_ARG("-a", 0)) {
             env_boot_args = true;
         }
@@ -165,17 +163,25 @@ int main(int argc, char** argv) {
         if(HAS_ARG("--433", 0)) {
             i433_patch = true;
         }
+
+        if(HAS_ARG("--dualboot", 0)) {
+            dualboot_patch = true;
+        }
+
+        if(HAS_ARG("--rsa", 0)) {
+            rsa_patch = true;
+        }
 	}
     
     if(local_patch && remote_patch) {
         return -1;
     }
-    
-    if (!rsa_patch && !debug_patch && !boot_partition_patch && !boot_ramdisk_patch && !setenv_patch && !ticket_patch && !custom_boot_args && !cmd_handler_str && !remote_patch && !local_patch && !env_boot_args && !kaslr_patch && !i433_patch && !logo_patch && !logo4_patch) {
+
+    if (!rsa_patch && !debug_patch && !boot_partition_patch && !boot_ramdisk_patch && !setenv_patch && !ticket_patch && !custom_boot_args && !cmd_handler_str && !remote_patch && !local_patch && !env_boot_args && !kaslr_patch && !i433_patch && !logo_patch && !logo4_patch && !dualboot_patch) {
         printf("%s: Nothing to patch!\n", __FUNCTION__);
         return -1;
     }
-    
+
     if(custom_boot_args && env_boot_args) {
     	printf("%s: Can't hardcode boot-args and use environment variable!\n", __FUNCTION__);
         return -1;
@@ -373,6 +379,15 @@ int main(int argc, char** argv) {
     	ret = patch_setenv_cmd(&iboot_in);
     	if(!ret) {
             printf("%s: Error doing patch_setenv_cmd()!\n", __FUNCTION__);
+            free(iboot_in.buf);
+            return -1;
+        }
+    }
+
+    if(dualboot_patch) {
+        ret = patch_dualboot(&iboot_in);
+    	if(!ret) {
+            printf("%s: Error doing patch_dualboot()!\n", __FUNCTION__);
             free(iboot_in.buf);
             return -1;
         }

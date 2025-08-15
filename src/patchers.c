@@ -116,24 +116,65 @@ int patch_boot_args(struct iboot_img* iboot_in, const char* boot_args) {
 	struct arm32_thumb_LDR* ldr_rd_boot_args = (struct arm32_thumb_LDR*) _ldr_rd_boot_args;
 	printf("%s: Found LDR R%d, =boot_args at %p\n", __FUNCTION__, ldr_rd_boot_args->rd, GET_IBOOT_FILE_OFFSET(iboot_in, _ldr_rd_boot_args));
 
-	/* Find next CMP Rd, #0 instruction... */
-	void* _cmp_insn = find_next_CMP_insn_with_value(ldr_rd_boot_args, 0x100, 0);
-	if(!_cmp_insn) {
-		printf("%s: Error locating next CMP instruction!\n", __FUNCTION__);
-		return 0;
-	}
+	void* arm32_thumb_IT_insn = ldr_rd_boot_args;
+    bool it_found = false;
+    uint16_t* itPtrStart = (uint16_t*)arm32_thumb_IT_insn;
+    uint16_t* itPtrEnd = itPtrStart + 0x30;
 
-	struct arm32_thumb* cmp_insn = (struct arm32_thumb*) _cmp_insn;
-	void* arm32_thumb_IT_insn = _cmp_insn;
+    /* Find IT instruction, if it's even there */
 
-	printf("%s: Found CMP R%d, #%d at %p\n", __FUNCTION__, cmp_insn->rd, cmp_insn->offset, GET_IBOOT_FILE_OFFSET(iboot_in, _cmp_insn));
+    for (uint16_t* itPtr = itPtrStart; itPtr != itPtrEnd; itPtr++) {
+        if (*itPtr == ARM32_THUMB_IT_EQ || *itPtr == ARM32_THUMB_IT_NE || *itPtr == ARM32_THUMB_ITE_NE) {
+            it_found = true;
+            arm32_thumb_IT_insn = (void*)itPtr;
+            break;
+        }
+    }
 
-	/* Find the next IT EQ/IT NE instruction following the CMP Rd, #0 instruction... (kinda hacky) */
-	while(*(uint16_t*)arm32_thumb_IT_insn != ARM32_THUMB_IT_EQ && *(uint16_t*)arm32_thumb_IT_insn != ARM32_THUMB_IT_NE) {
-		arm32_thumb_IT_insn++;
-	}
+    if (it_found) {
+        printf("%s: Found IT instruction at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, arm32_thumb_IT_insn));
+    }
 
-	printf("%s: Found IT EQ/IT NE at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, arm32_thumb_IT_insn));
+    void* _cmp_insn = NULL;
+
+    /* FIXME iOS 10 some reason is represented as iOS 0 instead of 10 */
+    int os_vers = get_os_version(iboot_in);
+    if (os_vers >= 2 && os_vers <= 4) {
+        if (it_found) {
+            /* IT instruction found! CMP is right above the IT instruction */
+            _cmp_insn = find_next_CMP_insn_with_value(arm32_thumb_IT_insn - 2, 0x10, 0);
+        } else {
+            if (os_vers == 2) {
+                /* iOS 2 has the CMP farther away */
+                _cmp_insn = find_next_CMP_insn_with_value(ldr_rd_boot_args - 0x40, 0x10, 0);
+            } else {
+                /* Images like iPod2,1 don't have IT instruction. It has the CMP above boot-args LDR */
+                _cmp_insn = find_next_CMP_insn_with_value(ldr_rd_boot_args - 0x10, 0x20, 0);
+            }
+        }
+
+        if (!_cmp_insn) {
+            printf("%s: Failed to find CMP Rx, #0!\n", __FUNCTION__);
+            return 0;
+        }
+
+        printf("%s: Found CMP Rx, #0 at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, _cmp_insn));
+        struct arm32_thumb* cmp_insn = (struct arm32_thumb*)_cmp_insn;
+
+        cmp_insn->offset = 1;
+        return 1;
+    } else {
+        _cmp_insn = find_next_CMP_insn_with_value(ldr_rd_boot_args, 0x100, 0);
+        if (!_cmp_insn) {
+            printf("%s: Failed to find CMP Rx, #0!\n", __FUNCTION__);
+            return 0;
+        }
+
+        printf("%s: Found CMP Rx, #0 at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, _cmp_insn));
+
+        struct arm32_thumb* cmp_insn = (struct arm32_thumb*)_cmp_insn;
+        cmp_insn->offset = 1;
+    }
 
 	/* MOV Rd, Rs instruction usually follows right after the IT instruction. */
 	struct arm32_thumb_hi_reg_op* mov_insn = (struct arm32_thumb_hi_reg_op*) (arm32_thumb_IT_insn + 2);
@@ -144,29 +185,16 @@ int patch_boot_args(struct iboot_img* iboot_in, const char* boot_args) {
 	int null_str_reg = (ldr_rd_boot_args->rd == mov_insn->rs) ? mov_insn->rd : mov_insn->rs;
 
     /* + 0x10: Some iBoots have the null string load after the CMP instruction... */
-    int os_vers = get_os_version(iboot_in);
-    if(os_vers <= 4) {
-        
-        if (*(uint16_t*)_cmp_insn == 0x2900){
-            *(uint8_t*)_cmp_insn = 0x01; //cmp R0, #0x1
-        } else {
-            _cmp_insn+=2;
-            if(*(uint16_t*)_cmp_insn == 0x2900){
-                *(uint8_t*)_cmp_insn = 0x01;
-            }
-        }
-        return 1;
-    }
-    
+
 	void* ldr_null_str = find_last_LDR_rd((uintptr_t) (_cmp_insn + 0x10), 0x200, null_str_reg);
 	if(!ldr_null_str) {
         
-        /* + 0x9 Some iBoots have the null string load after the CMP instruction... */
+        /* + 0x9 Some iBoots have the null string load after the CMP instruction... */        
         
         ldr_null_str = find_last_LDR_rd((uintptr_t) (_cmp_insn + 0x9), 0x200, null_str_reg);
         if(!ldr_null_str) {
-            printf("%s: Unable to find LDR R%d, =null_str\n", __FUNCTION__, null_str_reg);
-            return 0;
+                printf("%s: Unable to find LDR R%d, =null_str\n", __FUNCTION__, null_str_reg);
+                return 0;
         }
 	}
 
@@ -183,6 +211,7 @@ int patch_boot_args(struct iboot_img* iboot_in, const char* boot_args) {
 	printf("%s: Leaving...\n", __FUNCTION__);
 	return 1;
 }
+
 int patch_env_boot_args(struct iboot_img* iboot_in) {
     printf("%s: Finding rd=md0 LDR\n", __FUNCTION__);
     char* bootargs_ldr =  find_next_LDR_insn_with_str(iboot_in, DEFAULT_BOOTARGS_STR);
@@ -580,16 +609,14 @@ int patch_rsa_check(struct iboot_img* iboot_in) {
     /* Find the BL verify_shsh instruction... */
     int os_vers = get_os_version(iboot_in);
     if(os_vers == 4 || os_vers == 3) {
-        
-        void* rsa_check_4 = find_rsa_check_4(iboot_in);
-        if(!find_rsa_check_4) {
-            printf("%s: Unable to find BL ECID!\n", __FUNCTION__);
+        void* rsa_check_3_4 = find_rsa_check_3_4(iboot_in);
+        if(!rsa_check_3_4) {
             return 0;
         }
         /* BL --> MOVS R0, #0; MOVS R0, #0 */
-        printf("%s: Patching RSA at %p...\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_check_4));
-        *(uint32_t*)rsa_check_4 = bswap32(0x00200020);
-        
+        printf("%s: Patching RSA at %p...\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_check_3_4));
+        *(uint32_t*)rsa_check_3_4 = bswap32(0x00200020);
+
         void* ldr_ecid = find_ldr_ecid(iboot_in);
         if(!ldr_ecid) {
             printf("%s: Unable to find RSA check!\n", __FUNCTION__);
@@ -669,34 +696,34 @@ int patch_boot_mode(struct iboot_img* iboot_in, int mode) {
     
     void* firstBL = bl_search_down(var_ldr+4, 0x10);
     if(!firstBL) {
-        printf("%s: Unable to find firstBL!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: Unable to find firstBL!\n", __FUNCTION__);
         return 0;
     }
     void* secondBL = bl_search_down(firstBL+4, 0x10);
     if(!secondBL) {
-        printf("%s: Unable to find secondBL!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: Unable to find secondBL!\n", __FUNCTION__);
         return 0;
     }
     void* thefunc = bl_search_down(secondBL+4, 0x10);
     if(!thefunc) {
-        printf("%s: Unable to find thefunc!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: Unable to find thefunc!\n", __FUNCTION__);
         return 0;
     }
     
     void *afterBL = bl_search_down(thefunc+4, 0x10);
     if(!afterBL) {
-        printf("%s: Unable to find afterBL!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: Unable to find afterBL!\n", __FUNCTION__);
         return 0;
     }
     
     if (afterBL-4 == thefunc) {
-        printf("%s: afterbl is too close!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: afterbl is too close!\n", __FUNCTION__);
         return 0;
     }
     
     uint32_t *dst = resolve_bl32(thefunc);
     if(!afterBL) {
-        printf("%s: Unable to find dst!\n", __FUNCTION__, "debug-uarts");
+        printf("%s: Unable to find dst!\n", __FUNCTION__);
         return 0;
     }
     
@@ -814,7 +841,7 @@ int patch_ticket_check(struct iboot_img* iboot_in) {
         NOPstart[1] = 0xBF; //NOP
         NOPstart +=2;
     }
-    
+
     if (*(uint32_t*)NOPstop == bswap32(0x4ff0ff30)){ //mov.w      r0, #0xffffffff
         printf("%s: Detected mov r0, #0xffffffff at NOPstop\n", __FUNCTION__);
         printf("%s: Applying additional mov.w r0, #0 patch at %p...\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, NOPstop));
@@ -885,3 +912,140 @@ int patch_bgcolor(struct iboot_img* iboot_in, const char* bgcolor) {
     return 1;
 }
 
+int patch_dualboot_ibss(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    uint32_t iBootType = get_iBoot_type(iboot_in);
+    if (iBootType != IBOOT_TYPE_IBSS) {
+        printf("%s: This image is not an iBSS!\n", __FUNCTION__);
+        return 0;
+    }
+
+    // TODO: I need to test if all of this is doable for iBSS <= 4.x
+    int osVersion = get_os_version(iboot_in);
+    if (osVersion < 5 && has_kernel_load(iboot_in)) {
+        printf("%s: Detected iBSS is pre-iOS 5! Please use an iBEC instead!\n", __FUNCTION__);
+        return 0;
+    }
+
+    void* kloader_addr = find_kloader_addr(iboot_in);
+    if (!kloader_addr) {
+        printf("%s: Failed to find kloader MOV!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found kloader MOV at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, kloader_addr));
+
+    void* platform_str = find_platform(iboot_in);
+    if (!platform_str) {
+        printf("%s: Failed to get platform!\n", __FUNCTION__);
+        return 0;
+    }
+
+    uint32_t platform = *(uint32_t*)(platform_str + strlen(PLATFORM_INIT_STR));
+
+    if (platform == PLATFORM_8920 || platform == PLATFORM_8922) {
+        printf("%s: Using 920 patch!\n", __FUNCTION__);
+        *(uint32_t*)kloader_addr = bswap32(0xC6F6D071);
+    } else if (platform == PLATFORM_8930 || platform == PLATFORM_8950 || platform == PLATFORM_8955) {
+        printf("%s: Image is not 920 or 940. Using default patch!\n", __FUNCTION__);
+        *(uint32_t*)kloader_addr = bswap32(0xC7F6D074);
+    } else if (platform == PLATFORM_8940 || platform == PLATFORM_8942 || platform == PLATFORM_8945 || platform == PLATFORM_8947) {
+        printf("%s: Using 940 patch!\n", __FUNCTION__);
+        *(uint32_t*)kloader_addr = bswap32(0xCBF6D074);
+    } else {
+        printf("%s: Unsupported platform %x\n", __FUNCTION__, platform);
+        return 0;
+    }
+
+    void* usb = find_usb_wait_for_image(iboot_in);
+    if (!usb) {
+        printf("%s: Failed to find usb_wait_for_image()!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found usb_wait_for_image() at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, usb));
+
+    *(uint32_t*)usb = bswap32(0x00BF00BF);
+
+    // Patch BLT
+
+    void* blt = branch_thumb_conditional_search(usb, 10, 0);
+    if (!blt) {
+        printf("%s: Failed to find BLT to patch!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BLT at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, blt));
+
+    *(uint16_t*) blt = bswap16(0x00BF);
+
+    return 1;
+}
+
+int patch_dualboot_ibec(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    uint32_t iBootType = get_iBoot_type(iboot_in);
+    if (iBootType != IBOOT_TYPE_IBEC) {
+        printf("%s: This image is not an iBEC!\n", __FUNCTION__);
+        return 0;
+    }
+
+    void* fsboot = find_fsboot_boot_command(iboot_in);
+    if (!fsboot) {
+        printf("%s: Failed to find fsboot!\n", __FUNCTION__);
+        return 0;
+    }
+
+    void* upgrade = memstr(iboot_in->buf, iboot_in->len, "upgrade");
+    if (!upgrade) {
+        printf("%s: Failed to find upgrade str!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found upgrade at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, upgrade));
+
+    *(uint32_t*)fsboot = GET_IBOOT_ADDR(iboot_in, upgrade);
+
+    void* auto_boot_false = find_auto_boot(iboot_in);
+    if (!auto_boot_false) {
+        printf("%s: Failed to find auto-boot=false!\n", __FUNCTION__);
+        return 0;
+    }
+
+    void* true_str = memstr(iboot_in->buf, iboot_in->len, "true");
+    if (!true_str) {
+        printf("%s: Failed to find true str!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found true str at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, true_str));
+
+    *(uint32_t*)auto_boot_false = GET_IBOOT_ADDR(iboot_in, true_str);
+
+    return 1;
+}
+
+int patch_dualboot(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    uint32_t imageType = get_iBoot_type(iboot_in);
+    int ret = 0;
+
+    if (imageType == IBOOT_TYPE_IBSS) {
+        ret = patch_dualboot_ibss(iboot_in);
+    } else if (imageType == IBOOT_TYPE_IBEC) {
+        ret = patch_dualboot_ibec(iboot_in);
+    } else {
+        printf("%s: Image must be either iBSS or iBEC!\n", __FUNCTION__);
+        return 0;
+    }
+
+    if (!ret) {
+        printf("%s: Failed to apply dualboot patches!\n", __FUNCTION__);
+        return 0;
+    }
+
+    return 1;
+}

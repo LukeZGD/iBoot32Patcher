@@ -27,6 +27,7 @@
 
 #define ARM32_THUMB_IT_NE __builtin_bswap16(0x18BF)
 #define ARM32_THUMB_IT_EQ __builtin_bswap16(0x08BF)
+#define ARM32_THUMB_ITE_NE __builtin_bswap16(0x14BF)
 
 struct arm32_thumb_LDR_T3 {
 	uint8_t rn : 4;
@@ -105,6 +106,17 @@ struct arm32_thumb {
 	uint8_t one : 1;
 	uint8_t z: 1;
 	uint8_t zero : 1;
+} __attribute__((packed));
+
+struct arm32_thumb_MOVT {
+    uint16_t imm4 : 4;   // Top 4 bits of the immediate value
+    uint16_t pad0 : 6;   // Constant value bits (part of the encoding, usually fixed)
+    uint16_t i : 1;      // The highest bit of the immediate value
+    uint16_t pad1 : 5;   // Constant value bits (part of the encoding, usually fixed)
+    uint8_t imm8;        // Lower 8 bits of the immediate value
+    uint8_t rd : 4;      // Destination register
+    uint8_t imm3 : 3;    // Middle 3 bits of the immediate value
+    uint8_t bit31 : 1;   // Should be 0
 } __attribute__((packed));
 
 #endif

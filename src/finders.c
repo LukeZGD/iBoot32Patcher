@@ -139,21 +139,108 @@ void* find_ldr_sepo(struct iboot_img* iboot_in) {
     return ldr_sepo;
 }
 
-void* find_rsa_check_4(struct iboot_img* iboot_in) {
+void* find_rsa_check_3_4(struct iboot_img* iboot_in) {
     printf("%s: Entering...\n", __FUNCTION__);
-    
-    /* Find the RSA check */
-    void* rsa_check_4 = memstr(iboot_in->buf, iboot_in->len, RSA_PATCH_IOS_4);
-    if(!rsa_check_4) {
-        printf("%s: Unable to find RSA check!\n", __FUNCTION__);
+
+    void* ldr_cert = find_next_LDR_insn_with_value(iboot_in, 'CERT');
+    if (!ldr_cert) {
+        printf("%s: Failed to find LDR Rx, CERT!\n", __FUNCTION__);
         return 0;
     }
-    
-    printf("%s: Found RSA check at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_check_4));
-    
+
+    printf("%s: Found LDR Rx, CERT at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, ldr_cert));
+
+    /* Look for MOVS R1, #0x14 (hacky) as it seems to be used throughout multiple devices */
+
+    void* movs_insn = pattern_search(ldr_cert + 0x40, 0x100, bswap16(MOVS_R1_0x14), bswap16(MOVS_R1_0x14), 1);
+    if (!movs_insn) {
+        printf("%s: Failed to find MOVS R1, #0x14!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found MOVS R1, #0x14 at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, movs_insn));
+
+    void* bl_insn_1 = bl_search_down(movs_insn, 0x20);
+    if (!bl_insn_1) {
+        printf("%s: Failed to find BL 1 instruction!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 1 instruction at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_1));
+
+    void* bl_insn_1_xref = resolve_bl32(bl_insn_1);
+    if (!bl_insn_1_xref) {
+        printf("%s: Failed to get BL 1 instruction xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 1 instruction xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_1_xref));
+
+    void* bl_insn_2 = bl_search_down(bl_insn_1_xref, 0x20);
+    if (!bl_insn_2) {
+        printf("%s: Failed to find BL 2 instruction!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 2 instruction at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_2));
+
+    void* bl_insn_2_xref = resolve_bl32(bl_insn_2);
+    if (!bl_insn_2_xref) {
+        printf("%s: Failed to get BL 2 instruction xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 2 instruction xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_2_xref));
+
+    void* cmp_insn = find_next_CMP_insn_with_value(bl_insn_2_xref + 0x300 + 1, 0x200, 0x14);
+    if (!cmp_insn) {
+        printf("%s: Failed to find CMP Rx, 0x14!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found CMP Rx, 0x14 at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, cmp_insn));
+
+    void* bl_insn_3 = bl_search_down(cmp_insn + 0x25, 0x20);
+    if (!bl_insn_3) {
+        printf("%s: Failed to find BL 3 instruction!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 3 instruction at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_3));
+
+    void* bl_insn_3_xref = resolve_bl32(bl_insn_3);
+    if (!bl_insn_3_xref) {
+        printf("%s: Failed to find BL 3 instruction xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found BL 3 instruction xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, bl_insn_3_xref));
+
+    void* rsa_mov_neg1 = pattern_search(bl_insn_3_xref, 0x200, bswap32(MOVW_R0_NEG_1), bswap32(MOVW_R0_NEG_1), 1);
+    if(!rsa_mov_neg1) {
+        printf("%s: Failed to find MOV.W R0, #0xFFFFFFFF!\n", __FUNCTION__);
+
+        void* rsa_movs_1 = pattern_search(bl_insn_3_xref + 0x160, 0x10, bswap32(MOV_NEGS_R0_1), bswap32(MOV_NEGS_R0_1), 1);
+        if(!rsa_movs_1) {
+            printf("%s: Failed to find MOVS R0, #1; NEGS R0, R0! Adjusting offset!\n", __FUNCTION__);
+
+            void* rsa_movs_2 = pattern_search(bl_insn_3_xref + 0x150, 0x10, bswap32(MOV_NEGS_R0_1), bswap32(MOV_NEGS_R0_1), 1);
+            if (!rsa_movs_2) {
+                printf("%s: Failed to find MOVS R0, #1; NEGS R0, R0!\n", __FUNCTION__);
+                return 0;
+            }
+            rsa_movs_1 = rsa_movs_2;
+        }
+
+        printf("%s: Found MOVS R0, #1; NEGS R0, R0 at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_movs_1));
+        rsa_mov_neg1 = rsa_movs_1;
+    } else {
+        printf("%s: Found MOV.W R0, #0xFFFFFFFF! at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_mov_neg1));
+    }
+
     printf("%s: Leaving...\n", __FUNCTION__);
-    
-    return rsa_check_4;
+
+    return rsa_mov_neg1;
 }
 
 void* find_bl_verify_shsh_5_6_7(struct iboot_img* iboot_in) {
@@ -303,7 +390,7 @@ void* find_dtre_get_value_bl_insn(struct iboot_img* iboot_in, const char* var) {
 }
 
 void* find_verify_shsh_top(void* ptr) {
-    void* top = push_r4_r7_lr_search_up(ptr, 0x500);
+    void* top = push_r4_to_r7_lr_search_up(ptr, 0x500);
     if(!top) {
         return 0;
     }
@@ -418,4 +505,157 @@ void* find_boot_ramdisk_ldr(struct iboot_img* iboot_in) {
     }
     printf("%s: Found boot-ramdisk LDR: %p\n", __FUNCTION__, GET_IBOOT_ADDR(iboot_in, boot_ramdisk_ldr));
     return boot_ramdisk_ldr;
+}
+
+void* find_kloader_addr(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    char iBSS_ready[] = "iBSS ready, asking for DFU...\n";
+
+    void* iBSS_ready_ldr = find_next_LDR_insn_with_str(iboot_in, iBSS_ready);
+    if (!iBSS_ready_ldr) {
+        printf("%s: Failed to find %s\n", __FUNCTION__, iBSS_ready);
+        return 0;
+    }
+
+    printf("%s: Found LDR at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, iBSS_ready_ldr));
+
+    void* kloader_addr = find_next_MOVT_insn(iBSS_ready_ldr + 10, 14);
+    if (!kloader_addr) {
+        printf("%s: Failed to find MOVT for kloader!\n", __FUNCTION__);
+
+        kloader_addr = find_next_MOVT_insn(iBSS_ready_ldr + 12, 14);
+        if (!kloader_addr) {
+            printf("%s: Failed to find slight adjust for MOVT\n", __FUNCTION__);
+
+            kloader_addr = find_next_MOVT_insn(iBSS_ready_ldr + 0x22, 2);
+            if (!kloader_addr) {
+                printf("%s: Failed to find extended adjust for MOVT\n", __FUNCTION__);
+
+                // MOVT can sometimes be above the LDR
+                kloader_addr = find_next_MOVT_insn(iBSS_ready_ldr - 0x30, 0x10);
+                if (!kloader_addr) {
+                    printf("%s: Failed to find MOVT above LDR!\n", __FUNCTION__);
+                    return 0;
+                }
+            }
+        }
+    }
+
+    printf("%s: Found MOV for kloader at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, kloader_addr));
+
+    return kloader_addr;
+}
+
+void* find_usb_wait_for_image(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    char dfu[] = "Apple Mobile Device (DFU Mode)";
+
+    void* dfu_ldr = find_next_LDR_insn_with_str(iboot_in, dfu);
+    if (!dfu_ldr) {
+        printf("%s: Failed to find %s\n", __FUNCTION__, dfu);
+        return 0;
+    }
+
+    printf("%s: Found LDR at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, dfu_ldr));
+
+    void* push = push_r4_r7_lr_search_up(dfu_ldr, 0x20);
+    if (!push) {
+        printf("%s: Failed to find PUSH {R4,R7,LR}!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found PUSH {R4,R7,LR} at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, push));
+
+    void* push_xref = find_next_bl_insn_to(iboot_in, (uint32_t) ((uintptr_t)GET_IBOOT_FILE_OFFSET(iboot_in, push) + 1));
+    if (!push_xref) {
+        printf("%s: Failed to find BL to %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, push));
+        return 0;
+    }
+
+    printf("%s: Found xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, push_xref));
+
+    void* next_push = push_r4_to_r7_lr_search_up(push_xref, 0x10);
+    if (!next_push) {
+        printf("%s: Failed to find PUSH {R4-R7,LR}!\n", __FUNCTION__);
+        
+        // Some can still be PUSH {R4,R7,LR}
+
+        next_push = push_r4_r7_lr_search_up(push_xref, 0x10);
+
+        if (!next_push) {
+            printf("%s: Failed to find PUSH {R4,R7,LR}!\n", __FUNCTION__);
+            return 0;
+        }
+    }
+
+    printf("%s: Found PUSH {R4-R7,LR} at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, next_push));
+
+    void* next_push_xref = find_next_bl_insn_to(iboot_in, (uint32_t) ((uintptr_t)GET_IBOOT_FILE_OFFSET(iboot_in, next_push) + 1));
+    if (!next_push_xref) {
+        printf("%s: Failed to find next xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found next xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, next_push_xref));
+
+    return next_push_xref;
+}
+
+void* find_fsboot_boot_command(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    void* fsboot_str = memstr(iboot_in->buf, iboot_in->len, "fsboot");
+    if (!fsboot_str) {
+        printf("%s: Failed to find fsboot!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found fsboot at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, fsboot_str));
+
+    void* fsboot_xref = iboot_memmem(iboot_in, fsboot_str);
+    if (!fsboot_xref) {
+        printf("%s: Failed to find fsboot xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found fsboot xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, fsboot_xref));
+
+    return fsboot_xref;
+}
+
+void* find_auto_boot(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    void* false_str = memstr(iboot_in->buf, iboot_in->len, "false");
+    if (!false_str) {
+        printf("%s: Failed to find false str!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found false at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, false_str));
+
+    void* false_xref = iboot_memmem(iboot_in, false_str);
+    if (!false_xref) {
+        printf("%s: Failed to find false xref!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found false xref at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, false_xref));
+
+    return false_xref;
+}
+
+void* find_platform(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    void* platformStr = memstr(iboot_in->buf, iboot_in->len, PLATFORM_INIT_STR);
+    if (!platformStr) {
+        printf("%s: Failed to find platform string!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found platform string at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, platformStr));
+    return platformStr;
 }
