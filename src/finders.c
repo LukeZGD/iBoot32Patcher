@@ -243,6 +243,23 @@ void* find_rsa_check_3_4(struct iboot_img* iboot_in) {
     return rsa_mov_neg1;
 }
 
+void* find_rsa_check_4(struct iboot_img* iboot_in) {
+    printf("%s: Entering...\n", __FUNCTION__);
+
+    /* Find the RSA check */
+    void* rsa_check_4 = memstr(iboot_in->buf, iboot_in->len, RSA_PATCH_IOS_4);
+    if(!rsa_check_4) {
+        printf("%s: Unable to find RSA check!\n", __FUNCTION__);
+        return 0;
+    }
+
+    printf("%s: Found RSA check at %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, rsa_check_4));
+
+    printf("%s: Leaving...\n", __FUNCTION__);
+
+    return rsa_check_4;
+}
+
 void* find_bl_verify_shsh_5_6_7(struct iboot_img* iboot_in) {
     printf("%s: Entering...\n", __FUNCTION__);
     

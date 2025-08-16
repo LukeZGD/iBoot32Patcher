@@ -609,7 +609,7 @@ int patch_rsa_check(struct iboot_img* iboot_in) {
     /* Find the BL verify_shsh instruction... */
     int os_vers = get_os_version(iboot_in);
     if(os_vers == 4 || os_vers == 3) {
-        void* rsa_check_3_4 = find_rsa_check_3_4(iboot_in);
+        void* rsa_check_3_4 = find_rsa_check_4(iboot_in);
         if(!rsa_check_3_4) {
             return 0;
         }

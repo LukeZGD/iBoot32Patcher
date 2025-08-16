@@ -22,6 +22,8 @@
 
 #include <include/iBoot32Patcher.h>
 
+#define RSA_PATCH_IOS_4 "\x4F\xF0\xFF\x30\xDD\xF8\x40\x24\xDB\xF8\x00\x30\x9A\x42\x01\xD0"
+
 #define RSA_STR "Apple Secure Boot Certification Authority"
 #define MOVW_R0_NEG_1 0x4ff0ff30
 #define MOV_NEGS_R0_1 0x01204042
@@ -43,6 +45,7 @@
 
 void* find_bl_verify_shsh(struct iboot_img* iboot_in);
 void* find_rsa_check_3_4(struct iboot_img* iboot_in);
+void* find_rsa_check_4(struct iboot_img* iboot_in);
 void* find_ldr_ecid(struct iboot_img* iboot_in);
 void* find_ldr_bord(struct iboot_img* iboot_in);
 void* find_ldr_prod(struct iboot_img* iboot_in);
