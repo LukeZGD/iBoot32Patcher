@@ -407,6 +407,7 @@ int patch_logo4(struct iboot_img* iboot_in) {
 /* Jump from iBoot to iOS 4.3.3 or lower iBoot via go command */
 int patch_433orlower_jumpiBoot(struct iboot_img* iboot_in) {
     printf("%s: Entering...\n", __FUNCTION__);
+    int ipad2 = 0;
     void* main_loc = memmem(iboot_in -> buf, iboot_in -> len, "main", strlen("main"));
     if (!main_loc) {
         printf("%s: Failed to find main string\n", __FUNCTION__);
@@ -425,8 +426,15 @@ int patch_433orlower_jumpiBoot(struct iboot_img* iboot_in) {
     const char* patch_val = "\x00\x28\x08\xBF\x01\x20\x80\xBD";
     void* patch_loc = memmem(iboot_in -> buf, iboot_in -> len, patch_val, sizeof(patch_val));
     if (!patch_loc) {
-        printf("%s: Failed to find patch_offset string\n", __FUNCTION__);
-        return 0;
+        printf("%s: Failed to find patch_offset string! Is this iBoot for iPad 2?\n", __FUNCTION__);
+        patch_val = "\x0F\x28\x98\xBF\x10\x20\x80\xBD";
+        patch_loc = memmem(iboot_in -> buf, iboot_in -> len, patch_val, sizeof(patch_val));
+        if (!patch_loc){
+            printf("%s: Failed to find patch_offset string\n", __FUNCTION__);
+            return 0;
+        }
+        else
+            ipad2 = 1;
     }
     printf("%s: Found patch_offset string: %p\n", __FUNCTION__, GET_IBOOT_FILE_OFFSET(iboot_in, patch_loc));
     uint32_t iBoot4_fix_offset = GET_IBOOT_FILE_OFFSET(iboot_in, patch_loc);
@@ -464,8 +472,16 @@ int patch_433orlower_jumpiBoot(struct iboot_img* iboot_in) {
     *((uint32_t*)main_function+1) = make_b_w(main_function_loc, payload_loc);
     
     /* fix jump to iBoot */
-    *(uint32_t*)patch_loc = 0xbf982801;patch_loc+=4;
-    *(uint32_t*)patch_loc = 0xbd802002;
+    if (ipad2)
+    {
+        *(uint32_t*)patch_loc = 0xbf982810;patch_loc+=4;
+        *(uint32_t*)patch_loc = 0xbd802011;
+    }
+    else
+    {
+        *(uint32_t*)patch_loc = 0xbf982801;patch_loc+=4;
+        *(uint32_t*)patch_loc = 0xbd802002;
+    }
     
     printf("%s: Leaving\n", __FUNCTION__);
     return 1;
