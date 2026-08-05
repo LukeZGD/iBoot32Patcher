@@ -14,13 +14,23 @@ jobs:
     runs-on: ${{ matrix.arch.runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Run make
         run: make
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: iBoot32Patcher_linux-${{ matrix.arch.name }}
-          path: iBoot32Patcher
+      - name: Zip iBoot32Patcher
+        run: zip -r iBoot32Patcher_linux-${{ matrix.arch.name }}.zip iBoot32Patcher
+
+      - name: Update latest release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload latest \
+            iBoot32Patcher_linux-${{ matrix.arch.name }}.zip \
+            --clobber -R ${{ github.repository }}
+
+          gh release edit latest \
+            --title "Latest" \
+            --target ${{ github.sha }} -R ${{ github.repository }}
+
